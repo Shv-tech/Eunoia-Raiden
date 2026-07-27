@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Eunoia Raiden — Neural Flythrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg: #05050a;
+    --bg2: #0a0a12;
+    --ink: #E8E8ED;
+    --ink-soft: #9797a8;
+    --ink-faint: #57576a;
+    --border: rgba(255,255,255,0.08);
+    --glass: rgba(15,15,22,0.72);
+    --sans: 'Inter', -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+    --c-perception: #5B8CFF;
+    --c-bottleneck: #B98CFF;
+    --c-embed: #4FD1A5;
+    --c-encoder: #4FD1A5;
+    --c-decoder: #FFC15B;
+    --c-head: #FF6B8B;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{ height:100%; background:var(--bg); overflow:hidden; font-family:var(--sans); color:var(--ink); }
+  canvas{ display:block; }
+
+  #hud{ position:fixed; inset:0; pointer-events:none; z-index:10; }
+  #hud > *{ pointer-events:auto; }
+
+  .glass{
+    background:var(--glass); border:1px solid var(--border); border-radius:12px;
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  }
+
+  #topbar{
+    position:absolute; top:16px; left:16px; right:16px;
+    display:flex; align-items:center; gap:14px; padding:10px 16px;
+  }
+  .brand{ display:flex; align-items:center; gap:9px; }
+  .brand-mark{
+    width:16px; height:16px; border-radius:5px;
+    background:conic-gradient(from 210deg, var(--c-perception), var(--c-encoder), var(--c-bottleneck), var(--c-perception));
+    box-shadow:0 0 12px rgba(120,140,255,0.55);
+  }
+  .brand-text{ font-weight:600; font-size:13.5px; letter-spacing:-0.01em; }
+  .brand-sub{ font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); }
+  a.back{ color:var(--ink-soft); text-decoration:none; font-size:12px; font-family:var(--mono); margin-left:4px; }
+  a.back:hover{ color:var(--ink); }
+
+  #status{ margin-left:auto; display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px; color:var(--ink-soft); }
+  .dot{ width:6px; height:6px; border-radius:50%; background:var(--c-encoder); box-shadow:0 0 6px var(--c-encoder); }
+  .dot.down{ background:#FF6B6B; box-shadow:0 0 6px #FF6B6B; }
+
+  #controls{
+    position:absolute; top:64px; right:16px; padding:12px 14px; width:220px;
+    font-size:11.5px; color:var(--ink-soft);
+  }
+  #controls .row{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  #controls .row:last-child{ margin-bottom:0; }
+  button.mini{
+    background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--ink);
+    font-family:var(--mono); font-size:11px; padding:5px 9px; border-radius:7px; cursor:pointer;
+  }
+  button.mini:hover{ background:rgba(255,255,255,0.12); }
+  button.mini.active{ background:var(--c-encoder); color:#04140f; border-color:var(--c-encoder); }
+  input[type=range]{ width:100px; accent-color: var(--c-encoder); }
+
+  #layer-hud{
+    position:absolute; bottom:18px; left:16px; padding:14px 18px; min-width:280px;
+  }
+  #layer-hud .name{ font-size:14px; font-weight:600; margin-bottom:2px; }
+  #layer-hud .type{ font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); margin-bottom:8px; }
+  #layer-hud .row{ display:flex; justify-content:space-between; font-size:11.5px; padding:3px 0; }
+  #layer-hud .row span:first-child{ color:var(--ink-soft); }
+  #layer-hud .row span:last-child{ font-family:var(--mono); }
+
+  #minimap{
+    position:absolute; bottom:18px; right:16px; padding:10px 14px; width:230px;
+  }
+  #minimap .title{ font-family:var(--mono); font-size:10px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; }
+  #mm-track{ position:relative; height:6px; background:rgba(255,255,255,0.08); border-radius:4px; margin-bottom:6px; overflow:hidden; }
+  #mm-fill{ position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg,var(--c-perception),var(--c-encoder),var(--c-decoder)); border-radius:4px; }
+  #mm-label{ font-family:var(--mono); font-size:10.5px; color:var(--ink-soft); }
+
+  #legend{ position:absolute; top:64px; left:16px; padding:10px 14px; display:flex; flex-direction:column; gap:6px; }
+  .legend-item{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--ink-soft); }
+  .legend-swatch{ width:8px; height:8px; border-radius:50%; }
+
+  #hint{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    font-family:var(--mono); font-size:12px; color:var(--ink-faint); text-align:center;
+    opacity:0; transition:opacity .4s;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="topbar" class="glass">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">Eunoia Raiden</div>
+      <div class="brand-sub">恵雷 · neural flythrough</div>
+    </div>
+    <a class="back" href="dashboard.html">← dashboard</a>
+    <div id="status"><span class="dot" id="status-dot"></span><span id="status-text">connecting…</span></div>
+  </div>
+
+  <div id="legend" class="glass"></div>
+
+  <div id="controls" class="glass">
+    <div class="row">
+      <span>Autopilot</span>
+      <button class="mini active" id="btn-auto">on</button>
+    </div>
+    <div class="row">
+      <span>Speed</span>
+      <input type="range" id="speed" min="2" max="40" value="14">
+    </div>
+    <div class="row">
+      <span>Reset view</span>
+      <button class="mini" id="btn-reset">⟲</button>
+    </div>
+  </div>
+
+  <div id="layer-hud" class="glass">
+    <div class="name" id="lh-name">—</div>
+    <div class="type" id="lh-type">—</div>
+    <div class="row"><span>Nodes shown</span><span id="lh-nodes">—</span></div>
+    <div class="row"><span>Real width</span><span id="lh-width">—</span></div>
+    <div class="row"><span>Parameters</span><span id="lh-params">—</span></div>
+  </div>
+
+  <div id="minimap" class="glass">
+    <div class="title">Depth</div>
+    <div id="mm-track"><div id="mm-fill" style="width:0%"></div></div>
+    <div id="mm-label">layer 0 / 0</div>
+  </div>
+
+  <div id="hint">drag to look around · scroll to change speed · click autopilot to stop</div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════
+   DATA LOADING — same live data.json produced by introspect.py.
+   We walk KNOWN, STABLE attribute paths from the real EunoiaRaiden class
+   (self.perception.input_proj / .layers, self.bottleneck,
+   self.inductive_core.embedder / .encoder.layers / .decoder.layers /
+   .policy_head / .value_head) — the COUNT of layers at each stage is
+   read live (so if num_encoder_layers changes, the tunnel gets longer
+   automatically), nothing is hardcoded.
+   ══════════════════════════════════════════════════════════════════════ */
+let latestData = null;
+let lastGeneratedAt = null;
+
+function findPath(node, parts){
+  let cur = node;
+  for(const p of parts){
+    cur = cur.children.find(c=>c.name===p);
+    if(!cur) return null;
+  }
+  return cur;
+}
+
+function widthOf(node){
+  // best-effort real "width" for a layer: largest dimension among its
+  // own parameter tensors (e.g. LayerNorm[512] -> 512, Linear[1024,512] -> 1024)
+  if(!node) return 8;
+  let shapes = node.param_shapes || [];
+  // also look one level into children for containers with no own params (e.g. Sequential)
+  if(shapes.length===0 && node.children){
+    for(const c of node.children) shapes = shapes.concat(c.param_shapes||[]);
+  }
+  let maxDim = 0;
+  shapes.forEach(s=> s.forEach(d=> { if(d>maxDim && d<100000) maxDim=d; }));
+  return maxDim || 8;
+}
+
+function buildLayerSequence(data){
+  const tree = data.model_tree;
+  if(!tree) return [];
+  const layers = [];
+
+  const perception = findPath(tree, ['perception']);
+  const inputProj  = findPath(tree, ['perception','input_proj']);
+  const gnnLayers  = findPath(tree, ['perception','layers']);
+  const bottleneck = findPath(tree, ['bottleneck']);
+  const core       = findPath(tree, ['inductive_core']);
+  const embedder   = findPath(tree, ['inductive_core','embedder']);
+  const encLayers  = findPath(tree, ['inductive_core','encoder','layers']);
+  const decLayers  = findPath(tree, ['inductive_core','decoder','layers']);
+  const policyHead = findPath(tree, ['inductive_core','policy_head']);
+  const valueHead  = findPath(tree, ['inductive_core','value_head']);
+
+  if(inputProj) layers.push({label:'perception.input_proj', type:'Linear+LayerNorm', group:'perception', node:inputProj, width:widthOf(inputProj)});
+  (gnnLayers?.children||[]).forEach((c,i)=> layers.push({label:`perception.layers[${i}]`, type:'HeterogeneousMessagePassing', group:'perception', node:c, width:widthOf(c)}));
+  if(bottleneck) layers.push({label:'bottleneck', type:'SlotBottleneck (16 slots)', group:'bottleneck', node:bottleneck, width:16});
+  if(embedder) layers.push({label:'inductive_core.embedder', type:'IOSlotEmbedder', group:'embed', node:embedder, width:widthOf(embedder)});
+  (encLayers?.children||[]).forEach((c,i)=> layers.push({label:`encoder.layers[${i}]`, type:'TransformerEncoderLayer', group:'encoder', node:c, width:widthOf(c)}));
+  (decLayers?.children||[]).forEach((c,i)=> layers.push({label:`decoder.layers[${i}]`, type:'TransformerDecoderLayer', group:'decoder', node:c, width:widthOf(c)}));
+  if(policyHead) layers.push({label:'policy_head', type:'Linear → vocab', group:'head', node:policyHead, width:widthOf(policyHead)});
+  if(valueHead) layers.push({label:'value_head', type:'Linear → scalar', group:'head', node:valueHead, width:widthOf(valueHead)});
+
+  return layers;
+}
+
+const GROUP_COLOR = {
+  perception:'#5B8CFF', bottleneck:'#B98CFF', embed:'#4FD1A5',
+  encoder:'#4FD1A5', decoder:'#FFC15B', head:'#FF6B8B',
+};
+const GROUP_LABEL = {
+  perception:'GNN Perception', bottleneck:'Slot Bottleneck', embed:'IO Embedder',
+  encoder:'Encoder Stack', decoder:'Decoder Stack', head:'Output Heads',
+};
+
+/* ══════════════════════════════════════════════════════════════════════
+   THREE.JS SCENE
+   ══════════════════════════════════════════════════════════════════════ */
+let scene, camera, renderer;
+let tunnelGroup;
+let layerMeta = [];      // {group, zStart, zEnd, centerZ, label,...}
+let nodeSprites = [];    // for potential future interactions
+let glowTexture;
+let flightZ = 0;
+let autopilot = true;
+let speed = 14;
+let look = {theta:0, phi:Math.PI/2, dragging:false, px:0, py:0};
+const LAYER_SPACING = 130;
+
+function makeGlowTexture(){
+  const size = 128;
+  const c = document.createElement('canvas'); c.width=c.height=size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+  g.addColorStop(0,'rgba(255,255,255,1)');
+  g.addColorStop(0.25,'rgba(255,255,255,0.7)');
+  g.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,size,size);
+  return new THREE.CanvasTexture(c);
+}
+
+function initScene(){
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x05050a, 0.0016);
+
+  camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.5, 4000);
+  renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x05050a, 1);
+  document.body.appendChild(renderer.domElement);
+
+  glowTexture = makeGlowTexture();
+  tunnelGroup = new THREE.Group();
+  scene.add(tunnelGroup);
+
+  // faint starfield backdrop
+  const starGeo = new THREE.BufferGeometry();
+  const starCount = 900;
+  const pos = new Float32Array(starCount*3);
+  for(let i=0;i<starCount;i++){
+    pos[i*3]   = (Math.random()-0.5)*3000;
+    pos[i*3+1] = (Math.random()-0.5)*3000;
+    pos[i*3+2] = (Math.random()-0.5)*6000;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  const starMat = new THREE.PointsMaterial({color:0x8888a0, size:1.4, map:glowTexture, transparent:true, opacity:0.35, depthWrite:false, blending:THREE.AdditiveBlending});
+  scene.add(new THREE.Points(starGeo, starMat));
+
+  window.addEventListener('resize', onResize);
+  const dom = renderer.domElement;
+  dom.addEventListener('mousedown', e=>{ look.dragging=true; look.px=e.clientX; look.py=e.clientY; });
+  window.addEventListener('mouseup', ()=> look.dragging=false);
+  window.addEventListener('mousemove', e=>{
+    if(look.dragging){
+      look.theta -= (e.clientX-look.px)*0.0028;
+      look.phi   = Math.max(0.25, Math.min(Math.PI-0.25, look.phi - (e.clientY-look.py)*0.0028));
+      look.px=e.clientX; look.py=e.clientY;
+    }
+  });
+  dom.addEventListener('wheel', e=>{
+    e.preventDefault();
+    const s = document.getElementById('speed');
+    s.value = Math.max(2, Math.min(40, parseFloat(s.value) - e.deltaY*0.02));
+    speed = parseFloat(s.value);
+  }, {passive:false});
+  dom.addEventListener('touchstart', e=>{ const t=e.touches[0]; look.dragging=true; look.px=t.clientX; look.py=t.clientY; }, {passive:true});
+  dom.addEventListener('touchmove', e=>{
+    if(look.dragging){ const t=e.touches[0];
+      look.theta -= (t.clientX-look.px)*0.0028;
+      look.phi   = Math.max(0.25, Math.min(Math.PI-0.25, look.phi - (t.clientY-look.py)*0.0028));
+      look.px=t.clientX; look.py=t.clientY;
+    }
+  }, {passive:true});
+  dom.addEventListener('touchend', ()=> look.dragging=false);
+
+  document.getElementById('btn-auto').addEventListener('click', e=>{
+    autopilot = !autopilot;
+    e.target.classList.toggle('active', autopilot);
+    e.target.textContent = autopilot ? 'on' : 'off';
+  });
+  document.getElementById('speed').addEventListener('input', e=> speed = parseFloat(e.target.value));
+  document.getElementById('btn-reset').addEventListener('click', ()=>{ flightZ=0; look.theta=0; look.phi=Math.PI/2; });
+
+  const hint = document.getElementById('hint');
+  hint.style.opacity = 1;
+  setTimeout(()=> hint.style.opacity = 0, 3800);
+
+  animate();
+}
+
+function seededRand(seed){
+  let s = seed % 2147483647; if(s<=0) s += 2147483646;
+  return function(){ s = (s*16807) % 2147483647; return (s-1)/2147483646; };
+}
+
+function buildTunnel(layers){
+  while(tunnelGroup.children.length) tunnelGroup.remove(tunnelGroup.children[0]);
+  layerMeta = [];
+  if(!layers.length) return;
+
+  const maxWidth = Math.max(...layers.map(l=>l.width), 1);
+  const lineMat = new THREE.LineBasicMaterial({color:0x3a3a55, transparent:true, opacity:0.28, blending:THREE.AdditiveBlending});
+
+  let prevPositions = null;
+  layers.forEach((layer, li)=>{
+    const z = -li*LAYER_SPACING;
+    const rand = seededRand(li*97 + 13);
+    const displayCount = Math.max(6, Math.min(90, Math.round(8 + 82*Math.sqrt(layer.width/maxWidth))));
+    const radius = 22 + 34*Math.sqrt(layer.width/maxWidth);
+
+    const positions = [];
+    const geo = new THREE.BufferGeometry();
+    const verts = new Float32Array(displayCount*3);
+    for(let i=0;i<displayCount;i++){
+      const a = (i/displayCount)*Math.PI*2 + rand()*0.6;
+      const rr = radius*(0.35+0.65*rand());
+      const x = Math.cos(a)*rr;
+      const y = Math.sin(a)*rr;
+      verts[i*3]=x; verts[i*3+1]=y; verts[i*3+2]=z;
+      positions.push(new THREE.Vector3(x,y,z));
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(verts,3));
+    const color = new THREE.Color(GROUP_COLOR[layer.group]||'#8888a0');
+    const mat = new THREE.PointsMaterial({
+      color, size: 5.5, map:glowTexture, transparent:true, opacity:0.95,
+      depthWrite:false, blending:THREE.AdditiveBlending,
+    });
+    const pts = new THREE.Points(geo, mat);
+    tunnelGroup.add(pts);
+
+    // sparse connections to previous layer — organic, not fully-connected
+    if(prevPositions){
+      const linePos = [];
+      positions.forEach(p=>{
+        const linksN = 2 + Math.floor(rand()*2);
+        for(let k=0;k<linksN;k++){
+          const q = prevPositions[Math.floor(rand()*prevPositions.length)];
+          linePos.push(p.x,p.y,p.z, q.x,q.y,q.z);
+        }
+      });
+      const lgeo = new THREE.BufferGeometry();
+      lgeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(linePos),3));
+      tunnelGroup.add(new THREE.LineSegments(lgeo, lineMat));
+    }
+
+    // faint ring outline for the layer "plane"
+    const ringGeo = new THREE.RingGeometry(radius*0.995, radius, 48);
+    const ringMat = new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.05, side:THREE.DoubleSide});
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.z = z;
+    tunnelGroup.add(ring);
+
+    layerMeta.push({...layer, z, radius, displayCount});
+    prevPositions = positions;
+  });
+}
+
+function renderLegend(layers){
+  const seen = new Set();
+  const el = document.getElementById('legend');
+  el.innerHTML = '';
+  layers.forEach(l=>{
+    if(seen.has(l.group)) return;
+    seen.add(l.group);
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="legend-swatch" style="background:${GROUP_COLOR[l.group]};box-shadow:0 0 6px ${GROUP_COLOR[l.group]}"></span>${GROUP_LABEL[l.group]}`;
+    el.appendChild(item);
+  });
+}
+
+function fmt(n){ return n==null ? '—' : n.toLocaleString('en-US'); }
+
+function updateHUD(){
+  if(!layerMeta.length) return;
+  let nearest = layerMeta[0], bestD = Infinity;
+  layerMeta.forEach(l=>{ const d = Math.abs(l.z - flightZ); if(d<bestD){bestD=d; nearest=l;} });
+
+  document.getElementById('lh-name').textContent = nearest.label;
+  document.getElementById('lh-type').textContent = nearest.type;
+  document.getElementById('lh-nodes').textContent = nearest.displayCount + ' (rendered)';
+  document.getElementById('lh-width').textContent = nearest.width;
+  document.getElementById('lh-params').textContent = fmt(nearest.node ? nearest.node.total_params : null);
+
+  const idx = layerMeta.indexOf(nearest);
+  const pct = layerMeta.length>1 ? (100*idx/(layerMeta.length-1)) : 0;
+  document.getElementById('mm-fill').style.width = pct+'%';
+  document.getElementById('mm-label').textContent = `layer ${idx+1} / ${layerMeta.length}`;
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  if(!renderer) return;
+
+  if(autopilot){
+    flightZ -= speed * 0.06;
+    const minZ = layerMeta.length ? layerMeta[layerMeta.length-1].z - 160 : -2000;
+    if(flightZ < minZ) flightZ = 40; // loop back to the start
+  }
+
+  const dirX = Math.sin(look.phi)*Math.sin(look.theta);
+  const dirY = Math.cos(look.phi);
+  const dirZ = Math.sin(look.phi)*Math.cos(look.theta) * -1;
+
+  camera.position.set(0,0, flightZ);
+  camera.lookAt(camera.position.x + dirX, camera.position.y + dirY, camera.position.z + dirZ);
+
+  tunnelGroup.rotation.z += 0.0002;
+  updateHUD();
+  renderer.render(scene, camera);
+}
+
+function onResize(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   POLLING — same data.json as the dashboard. Rebuild tunnel on change.
+   ══════════════════════════════════════════════════════════════════════ */
+async function poll(){
+  try{
+    const res = await fetch('data.json?t='+Date.now(), {cache:'no-store'});
+    if(!res.ok) throw new Error('http '+res.status);
+    const data = await res.json();
+    setStatus(true, data.model_status==='live' ? 'live — synced with codebase' : 'model unavailable');
+    if(data.generated_at !== lastGeneratedAt){
+      lastGeneratedAt = data.generated_at;
+      latestData = data;
+      const layers = buildLayerSequence(data);
+      renderLegend(layers);
+      buildTunnel(layers);
+    }
+  }catch(e){
+    setStatus(false, 'no connection to visualize/server.py');
+  }
+  setTimeout(poll, 3000);
+}
+function setStatus(ok, text){
+  document.getElementById('status-dot').className = 'dot' + (ok?'':' down');
+  document.getElementById('status-text').textContent = text;
+}
+
+initScene();
+poll();
+</script>
+</body>
+</html>
